@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: loki-stack
+  namespace: kube-system
+spec:
+  repo: https://grafana.github.io/helm-charts
+  version: 2.9.11
+  chart: loki-stack
+  targetNamespace: logging
