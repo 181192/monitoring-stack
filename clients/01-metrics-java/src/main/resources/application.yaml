@@ -1,0 +1,23 @@
+
+management.endpoints.web.exposure.include: "health,prometheus"
+management.endpoint:
+    health:
+      probes:
+        add-additional-paths: true
+
+management:
+  metrics:
+    enable:
+      tomcat: false
+      jvm: false
+      process: false
+      hikaricp: false
+      system: false
+      jdbc: false
+      http: false
+      logback: false
+      executor: false
+      disk: false
+      application: false
+server:
+  port: 8081
