@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: 02-tracing-java
+  main:
+    banner-mode: off
+  ai:
+    openai:
+      api-key: ${OPEN_API_KEY}
+      embedding-model: text-embedding-ada-002
+      model: gpt-3.5-turbo
+      temperature: 0.7
+  devtools:
+    add-properties: false
+
+
+
+management:
+  observations:
+    http:
+      server:
+        actuator:
+          enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+  otlp:
+    tracing:
+      endpoint: http://localhost:4318/v1/traces
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+clients:
+  weather:
+    baseUrl: http://localhost:8083
+    timeout: 10s
+  geolocation:
+    baseUrl: http://localhost:8083
+    timeout: 10s
