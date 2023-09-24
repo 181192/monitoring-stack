@@ -1,18 +1,18 @@
 const express = require('express');
 const prometheus = require('prom-client');
 const app = express();
-const port = 8080 || process.env.PORT;
+const port = process.env.PORT || 8080;
 
 const httpRequestsTotal = new prometheus.Counter({
-  name: 'http_requests_total',
+  name: 'http_server_requests_total',
   help: 'Number of HTTP operations',
-  labelNames: ['method', 'status', 'path']
+  labelNames: ['method', 'status', 'uri']
 });
 
 const httpRequestDuration = new prometheus.Histogram({
-  name: 'http_request_duration_seconds',
+  name: 'http_server_request_seconds',
   help: 'Duration of HTTP requests in seconds',
-  labelNames: ['method', 'status', 'path'],
+  labelNames: ['method', 'status', 'uri'],
   buckets: prometheus.linearBuckets(0.005, 10, 11)
 });
 
