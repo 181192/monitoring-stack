@@ -28,7 +28,7 @@ spec:
   targetNamespace: istio-system
   valuesContent: |-
     meshConfig:
-      accessLogFile: /dev/stdout
+      accessLogFile: ""
       accessLogEncoding: JSON
       accessLogFormat: |
         {
@@ -58,13 +58,23 @@ spec:
           "path": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
         }
       outboundTrafficPolicy:
-        mode: REGISTRY_ONLY
-      enableTracing: true
-      defaultConfig:
-        tracing:
-          sampling: 100.0
-          zipkin:
-            address: tempo.tracing:9411
+        mode: ALLOW_ANY
+      extensionProviders:
+        - name: otel
+          opentelemetry:
+            service: tempo.tracing.svc.cluster.local
+            port: 4317
+---
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: istio-system
+spec:
+  tracing:
+    - providers:
+        - name: otel
+      randomSamplingPercentage: 100.0
 ---
 apiVersion: helm.cattle.io/v1
 kind: HelmChart
