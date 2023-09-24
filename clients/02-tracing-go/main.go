@@ -2,16 +2,20 @@ package main
 
 import (
 	"context"
-	"log"
-	"math/rand"
+	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
+	"github.com/gin-contrib/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
@@ -21,13 +25,25 @@ import (
 
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
-	serviceName  = os.Getenv("SERVICE_NAME")
-	collectorURL = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	exportMode   = os.Getenv("OTEL_EXPORTER_EXPORT_MODE")
+	port              = getEnv("PORT", "8080")
+	serviceName       = getEnv("SERVICE_NAME", "02-tracing-go")
+	collectorURL      = getEnv("OTEL_EXPORTER_OTLP_GRPC_ENDPOINT", "localhost:4317")
+	exportMode        = getEnv("OTEL_EXPORTER_OTLP_EXPORT_MODE", "")
+	weatherServiceURL = getEnv("WEATHER_SERVICE_URL", "http://localhost:8080")
+	environment       = getEnv("ENVIRONMENT", "development")
 )
+
+func getEnv(key, fallback string) string {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		value = fallback
+	}
+	return value
+}
 
 var (
 	httpRequestsTotal = prometheus.NewCounterVec(
@@ -59,7 +75,7 @@ func getTraceExporter() (sdktrace.SpanExporter, error) {
 	}
 
 	if len(collectorURL) == 0 {
-		log.Fatalf("OTEL_EXPORTER_OTLP_ENDPOINT environment variable not set")
+		log.Fatal().Msg("OTEL_EXPORTER_OTLP_GRPC_ENDPOINT environment variable not set")
 	}
 
 	return otlptrace.New(
@@ -74,7 +90,7 @@ func getTraceExporter() (sdktrace.SpanExporter, error) {
 func initTracer() func(context.Context) error {
 	exporter, err := getTraceExporter()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("Failed to create the collector trace exporter")
 	}
 
 	resources, err := resource.New(
@@ -85,7 +101,7 @@ func initTracer() func(context.Context) error {
 		),
 	)
 	if err != nil {
-		log.Println("Could not set resources: ", err)
+		log.Warn().Err(err).Msg("Could not set resources")
 	}
 
 	otel.SetTracerProvider(
@@ -106,19 +122,6 @@ func initTracer() func(context.Context) error {
 	return exporter.Shutdown
 }
 
-func pingHandler(c *gin.Context) {
-	start := time.Now()
-	sleepDuration := time.Duration(rand.Intn(3))
-	log.Printf("Sleeping for %v seconds", sleepDuration)
-	time.Sleep(sleepDuration * time.Second) // Sleep for a random duration between 0 and 1 seconds
-
-	duration := time.Since(start)
-	httpRequestDuration.WithLabelValues("GET", "200", "/ping").Observe(duration.Seconds())
-	httpRequestsTotal.WithLabelValues("GET", "200", "/ping").Inc()
-
-	c.JSON(http.StatusOK, gin.H{"message": "pong"})
-}
-
 func healthzHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
 }
@@ -127,7 +130,124 @@ func readyzHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
 }
 
+type Weather struct {
+	Message       string  `json:"message"`
+	Address       string  `json:"address"`
+	Temperature   float64 `json:"temperature"`
+	WindSpeed     float64 `json:"windSpeed"`
+	WeatherSymbol string  `json:"weatherSymbol"`
+}
+
+func weatherHandler(c *gin.Context) {
+	start := time.Now()
+
+	longitude := c.Query("longitude")
+	latitude := c.Query("latitude")
+
+	if len(longitude) == 0 || len(latitude) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Missing longitude or latitude"})
+		return
+	}
+
+	context := c.Request.Context()
+	span := trace.SpanFromContext(context)
+	defer span.End()
+
+	uri := c.Request.URL.Path
+	method := c.Request.Method
+
+	exemplarsLabels := prometheus.Labels{
+		"trace_id": span.SpanContext().TraceID().String(),
+		"span_id":  span.SpanContext().SpanID().String(),
+	}
+
+	otel.GetTextMapPropagator().Inject(context, propagation.HeaderCarrier(c.Request.Header))
+	url := weatherServiceURL + "/weather?longitude=" + longitude + "&latitude=" + latitude
+	res, err := httpGet(context, url)
+	if err != nil {
+		log.Warn().Err(err).Msg("Error fetching weather")
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error fetching weather"})
+
+		duration := time.Since(start)
+		status := strconv.Itoa(http.StatusInternalServerError)
+		httpRequestDuration.WithLabelValues(method, status, uri).(prometheus.ExemplarObserver).
+			ObserveWithExemplar(duration.Seconds(), exemplarsLabels)
+		httpRequestsTotal.WithLabelValues(method, status, uri).(prometheus.ExemplarAdder).
+			AddWithExemplar(1, exemplarsLabels)
+		return
+	}
+
+	var weather Weather
+	err = json.NewDecoder(res.Body).Decode(&weather)
+	if err != nil {
+		log.Warn().Err(err).Msg("Error decoding response body")
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error decoding response body"})
+		return
+	}
+
+	if c.Request.Header.Get("Content-Type") == "application/json" {
+		c.JSON(http.StatusOK, weather)
+	} else {
+		c.HTML(http.StatusOK, "weather.tmpl", gin.H{
+			"message":       weather.Message,
+			"address":       weather.Address,
+			"temperature":   weather.Temperature,
+			"windSpeed":     weather.WindSpeed,
+			"weatherSymbol": weather.WeatherSymbol,
+		})
+	}
+
+	duration := time.Since(start)
+	status := strconv.Itoa(http.StatusOK)
+	httpRequestDuration.WithLabelValues(method, status, uri).(prometheus.ExemplarObserver).
+		ObserveWithExemplar(duration.Seconds(), exemplarsLabels)
+	httpRequestsTotal.WithLabelValues(method, status, uri).(prometheus.ExemplarAdder).
+		AddWithExemplar(1, exemplarsLabels)
+}
+
+func httpGet(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport,
+			otelhttp.WithPropagators(otel.GetTextMapPropagator()),
+			otelhttp.WithSpanOptions(trace.WithAttributes(
+				attribute.String("component", "opentracing-example"),
+			)),
+		),
+	}
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+var loggerHandler = logger.SetLogger(
+	logger.WithLogger(func(c *gin.Context, l zerolog.Logger) zerolog.Logger {
+		l = l.Output(gin.DefaultWriter).With().Logger()
+
+		if trace.SpanFromContext(c.Request.Context()).SpanContext().IsValid() {
+			l = l.With().
+				Str("trace_id", trace.SpanFromContext(c.Request.Context()).SpanContext().TraceID().String()).
+				Str("span_id", trace.SpanFromContext(c.Request.Context()).SpanContext().SpanID().String()).
+				Logger()
+		}
+
+		return l.With().
+			Str("path", c.Request.URL.Path).
+			Logger()
+	}),
+)
+
 func main() {
+
 	cleanup := initTracer()
 	defer cleanup(context.Background())
 
@@ -135,8 +255,17 @@ func main() {
 	registry.MustRegister(httpRequestsTotal)
 	registry.MustRegister(httpRequestDuration)
 
-	r := gin.Default()
-	r.Use(otelgin.Middleware(serviceName))
+	if environment == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware(serviceName, otelgin.WithFilter(func(r *http.Request) bool {
+		return r.URL.Path != "/metrics" && r.URL.Path != "/healthz" && r.URL.Path != "/readyz"
+	})))
+	r.LoadHTMLGlob("templates/*")
+
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{
 		EnableOpenMetrics: true,
 	})))
@@ -149,11 +278,11 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "UP"})
 	})
 
-	r.GET("/ping", pingHandler)
+	r.GET("/weather", loggerHandler, weatherHandler)
 
-	log.Println("Starting server at port 8080")
-	err := r.Run(":8080")
+	log.Printf("Starting server at port %s", port)
+	err := r.Run(":" + port)
 	if err != nil {
-		log.Fatalf("Error starting server: %v", err)
+		log.Fatal().Err(err).Msg("Error starting server")
 	}
 }
