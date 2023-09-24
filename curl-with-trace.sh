@@ -22,5 +22,5 @@ echo "sending to host $URL"
 echo "sending a trace-parent of: $TRACE_PARENT"
 
 curl --location "${URL}" \
--H "traceparent: $TRACE_PARENT"
-
+-H "Accept: application/json" \
+-H "traceparent: $TRACE_PARENT" | jq
