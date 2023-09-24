@@ -49,3 +49,6 @@ Temporary Items
 
 # Go workspace file
 go.work
+
+!.envrc
+**.env*
