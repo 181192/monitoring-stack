@@ -1,3 +1,5 @@
+server:
+  port: 8081
 
 management.endpoints.web.exposure.include: "health,prometheus"
 management.endpoint:
@@ -19,5 +21,3 @@ management:
       executor: false
       disk: false
       application: false
-server:
-  port: 8081

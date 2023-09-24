@@ -7,16 +7,16 @@ import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
-import org.springframework.web.reactive.function.server.RouterFunction;
-import org.springframework.web.reactive.function.server.RouterFunctions;
-import org.springframework.web.reactive.function.server.ServerResponse;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
 @Slf4j
+@RestController
 @SpringBootApplication
 public class Application {
 
@@ -24,59 +24,48 @@ public class Application {
         SpringApplication.run(Application.class, args);
     }
 
-    @Bean
-    RouterFunction<ServerResponse> routes() {
+    private final Timer.Builder timer = Timer.builder("http_server_request_seconds")
+            .description("Duration of HTTP requests in seconds")
+            .sla(Duration.ofMillis(5),
+                    Duration.ofMillis(10),
+                    Duration.ofMillis(25),
+                    Duration.ofMillis(50),
+                    Duration.ofMillis(100),
+                    Duration.ofMillis(250),
+                    Duration.ofMillis(500),
+                    Duration.ofMillis(1000),
+                    Duration.ofMillis(2500),
+                    Duration.ofMillis(5000),
+                    Duration.ofMillis(10000));
 
-        Timer.Builder timer = Timer.builder("http_request_duration_seconds")
-                .description("Duration of HTTP requests in seconds")
-                .sla(Duration.ofMillis(5),
-                        Duration.ofMillis(10),
-                        Duration.ofMillis(25),
-                        Duration.ofMillis(50),
-                        Duration.ofMillis(100),
-                        Duration.ofMillis(250),
-                        Duration.ofMillis(500),
-                        Duration.ofMillis(1000),
-                        Duration.ofMillis(2500),
-                        Duration.ofMillis(5000),
-                        Duration.ofMillis(10000));
+    private final Counter.Builder counter = Counter.builder("http_server_requests_total")
+            .description("Number of HTTP requests");
 
-        Counter.Builder counter = Counter.builder("http_requests_total")
-                .description("Number of HTTP requests");
+    @GetMapping(value = "/ping", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String ping() throws InterruptedException {
+        Instant start = Instant.now();
+        Double sleepDuration = Math.random() * 1000;
+        log.info("Sleeping for {} ms", sleepDuration);
 
-        return RouterFunctions.route()
-                .GET("/ping", req -> {
+        Thread.sleep(sleepDuration.longValue());
 
-                    Instant start = Instant.now();
-                    Double sleepDuration = Math.random() * 1000;
-                    log.info("Sleeping for {} ms", sleepDuration);
+        Instant end = Instant.now();
+        Duration duration = Duration.between(start, end);
 
-                    try {
-                        Thread.sleep(sleepDuration.longValue());
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
+        List<Tag> tags = List.of(
+                Tag.of("status", "200"),
+                Tag.of("method", "GET"),
+                Tag.of("uri", "/ping")
+        );
 
-                    Instant end = Instant.now();
-                    Duration duration = Duration.between(start, end);
+        timer.tags(tags)
+                .register(Metrics.globalRegistry)
+                .record(duration);
 
-                    List<Tag> tags = List.of(
-                            Tag.of("status", "200"),
-                            Tag.of("method", "GET"),
-                            Tag.of("uri", "/ping")
-                    );
+        counter.tags(tags)
+                .register(Metrics.globalRegistry)
+                .increment();
 
-                    timer.tags(tags)
-                            .register(Metrics.globalRegistry)
-                            .record(duration);
-
-                    counter.tags(tags)
-                            .register(Metrics.globalRegistry)
-                            .increment();
-
-                    return ServerResponse.ok().bodyValue("pong");
-
-                })
-                .build();
+        return "{\"message\": \"pong\"}";
     }
 }
