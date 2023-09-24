@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -65,9 +66,18 @@ func main() {
 	http.HandleFunc("/readyz", readyzHandler)
 	http.HandleFunc("/ping", pingHandler)
 
-	log.Println("Starting server at port 8080")
-	err := http.ListenAndServe(":8080", nil)
+	port := getEnv("PORT", "8080")
+	log.Printf("Starting server at port %s", port)
+	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
+}
+
+func getEnv(key, fallback string) string {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		value = fallback
+	}
+	return value
 }
