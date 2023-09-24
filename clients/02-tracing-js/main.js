@@ -1,5 +1,10 @@
+const winston = require('winston');
 const express = require("express");
 const prometheus = require("prom-client");
+
+const logger = winston.createLogger({
+  transports: [new winston.transports.Console()],
+});
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -104,25 +109,25 @@ app.get("/weather", async (req, res) => {
     weatherSymbol: data.properties.timeseries[0].data.next_1_hours.summary.symbol_code
   });
 
-    const end = Date.now();
-    const duration = end - start;
+  const end = Date.now();
+  const duration = end - start;
 
-    httpRequestDuration
-      .labels(req.method, res.statusCode, req.path)
-      .observe(duration / 1000);
-    httpRequestsTotal.labels(req.method, res.statusCode, req.path).inc();
+  httpRequestDuration
+    .labels(req.method, res.statusCode, req.path)
+    .observe(duration / 1000);
+  httpRequestsTotal.labels(req.method, res.statusCode, req.path).inc();
 });
 
 const server = app.listen(port, () => {
-  console.log(`Starting server at port ${port}!`);
+  logger.info(`Starting server at port ${port}!`);
 });
 
 process.on("SIGTERM", async () => {
-  console.log("SIGTERM signal received: closing HTTP server");
+  logger.info("SIGTERM signal received: closing HTTP server");
 
   server.close((err) => {
     if (err) {
-      console.error(err);
+      logger.error(err);
       process.exit(1);
     }
 

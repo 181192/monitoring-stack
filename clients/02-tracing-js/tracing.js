@@ -8,10 +8,11 @@ const { Resource } = require('@opentelemetry/resources');
 const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
 const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http')
 const { ExpressInstrumentation } = require('@opentelemetry/instrumentation-express')
+const { WinstonInstrumentation } = require('@opentelemetry/instrumentation-winston');
 
-const serviceName = process.env.SERVICE_NAME;
+const serviceName = process.env.SERVICE_NAME || '02-tracing-js';
 const exportMode = process.env.OTEL_EXPORTER_EXPORT_MODE;
-const collectorUrl = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const collectorUrl = process.env.OTEL_EXPORTER_OTLP_HTTP_ENDPOINT || 'http://localhost:4318/v1/traces';
 
 let traceExporter;
 if (exportMode === 'stdout') {
@@ -32,8 +33,13 @@ const sdk = new opentelemetry.NodeSDK({
   }),
   instrumentations: [
     // getNodeAutoInstrumentations(),
-    new HttpInstrumentation(),
-    // new ExpressInstrumentation()
+    new HttpInstrumentation({
+      ignoreIncomingRequestHook: (req) => {
+        return req.url === '/metrics' || req.url === '/healthz' || req.url === '/readyz';
+      }
+    }),
+    // new ExpressInstrumentation(),
+    new WinstonInstrumentation(),
   ]
 });
 
