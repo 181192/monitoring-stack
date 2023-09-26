@@ -28,6 +28,7 @@ spec:
   targetNamespace: istio-system
   valuesContent: |-
     meshConfig:
+      # accessLogFile: /dev/stdout
       accessLogFile: ""
       accessLogEncoding: JSON
       accessLogFormat: |
@@ -58,7 +59,7 @@ spec:
           "path": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
         }
       outboundTrafficPolicy:
-        mode: ALLOW_ANY
+        mode: REGISTRY_ONLY
       extensionProviders:
         - name: otel
           opentelemetry:

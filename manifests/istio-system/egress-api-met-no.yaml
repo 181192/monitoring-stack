@@ -1,0 +1,113 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: api-met-no
+  namespace: istio-system
+spec:
+  exportTo:
+    - "*" # Export to all namespaces
+  hosts:
+  - api.met.no
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+  - number: 443
+    name: https
+    protocol: HTTPS
+  resolution: DNS
+# ---
+# apiVersion: networking.istio.io/v1alpha3
+# kind: Gateway
+# metadata:
+#   name: egress-api-met-no
+#   namespace: istio-system
+# spec:
+#   exportTo:
+#     - "*" # Export to all namespaces
+#   selector:
+#     istio: egressgateway
+#   servers:
+#   - port:
+#       number: 80
+#       name: https-port-for-tls-origination
+#       protocol: HTTPS
+#     hosts:
+#     - api.met.no
+#     tls:
+#       mode: ISTIO_MUTUAL
+# ---
+# apiVersion: networking.istio.io/v1alpha3
+# kind: DestinationRule
+# metadata:
+#   name: egress-api-met-no
+#   namespace: istio-system
+# spec:
+#   exportTo:
+#     - "*" # Export to all namespaces
+#   host: istio-egressgateway.istio-system.svc.cluster.local
+#   subsets:
+#   - name: api-met-no
+#     trafficPolicy:
+#       loadBalancer:
+#         simple: ROUND_ROBIN
+#       portLevelSettings:
+#       - port:
+#           number: 80
+#         tls:
+#           mode: ISTIO_MUTUAL
+#           sni: api.met.no
+# ---
+# apiVersion: networking.istio.io/v1alpha3
+# kind: VirtualService
+# metadata:
+#   name: egress-api-met-no
+#   namespace: istio-system
+# spec:
+#   exportTo:
+#     - "*" # Export to all namespaces
+#   hosts:
+#   - api.met.no
+#   gateways:
+#   - istio-system/istio-egressgateway
+#   - mesh
+#   http:
+#   - match:
+#     - gateways:
+#       - mesh
+#       port: 80
+#     route:
+#     - destination:
+#         host: istio-egressgateway.istio-system.svc.cluster.local
+#         subset: api-met-no
+#         port:
+#           number: 80
+#       weight: 100
+#   - match:
+#     - gateways:
+#       - istio-system/egressgateway
+#       port: 80
+#     route:
+#     - destination:
+#         host: api.met.no
+#         port:
+#           number: 443
+#       weight: 100
+# ---
+# apiVersion: networking.istio.io/v1alpha3
+# kind: DestinationRule
+# metadata:
+#   name: originate-tls-for-api-met-no
+#   namespace: istio-system
+# spec:
+#   host: api.met.no
+#   exportTo:
+#     - "*" # Export to all namespaces
+#   trafficPolicy:
+#     loadBalancer:
+#       simple: ROUND_ROBIN
+#     portLevelSettings:
+#     - port:
+#         number: 443
+#       tls:
+#         mode: SIMPLE # initiates HTTPS for connections to api.met.no
