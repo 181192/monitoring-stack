@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -224,6 +226,10 @@ func httpGet(ctx context.Context, url string) (*http.Response, error) {
 	res, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
+	}
+
+	if res.StatusCode != http.StatusOK {
+		return nil, errors.New(fmt.Sprintf("Error fetching weather: %s", res.Status))
 	}
 
 	return res, nil
