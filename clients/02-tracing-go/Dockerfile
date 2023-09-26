@@ -1,6 +1,7 @@
 FROM golang:1.21-alpine as builder
 
 WORKDIR /app
+RUN apk --no-cache add curl
 
 COPY go.mod .
 COPY go.sum .
