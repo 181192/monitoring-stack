@@ -187,9 +187,10 @@ func weatherHandler(c *gin.Context) {
 		return
 	}
 
-	if c.Request.Header.Get("Content-Type") == "application/json" {
+	switch c.NegotiateFormat(gin.MIMEJSON, gin.MIMEHTML) {
+	case gin.MIMEJSON:
 		c.JSON(http.StatusOK, weather)
-	} else {
+	case gin.MIMEHTML:
 		c.HTML(http.StatusOK, "weather.tmpl", gin.H{
 			"message":       weather.Message,
 			"address":       weather.Address,
@@ -197,6 +198,8 @@ func weatherHandler(c *gin.Context) {
 			"windSpeed":     weather.WindSpeed,
 			"weatherSymbol": weather.WeatherSymbol,
 		})
+	default:
+		c.JSON(http.StatusOK, weather)
 	}
 
 	duration := time.Since(start)
